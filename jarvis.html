@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#051019">
+<title>Jarvis</title>
+<style>
+:root{--bg:#051019;--panel:#0b1c2a;--line:#17384f;--ice:#8fe9ff;--gold:#f2b84b;--text:#d8eef7;--dim:#6f93a8;color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:radial-gradient(circle at 50% 38%,#0a2434,var(--bg) 70%);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px}
+h1{font-size:20px;font-weight:600;letter-spacing:.22em;color:var(--ice)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.gear{border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--dim)}
+#log{flex:1;overflow-y:auto;padding:8px 18px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:88%;padding:10px 14px;border-radius:14px;line-height:1.4;font-size:16px}
+.u{align-self:flex-end;background:var(--panel);border:1px solid var(--line)}
+.j{align-self:flex-start;color:var(--ice)}
+.sys{align-self:center;color:var(--dim);font-size:14px;text-align:center}
+.dock{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0 18px}
+#orb{width:124px;height:124px;border-radius:50%;position:relative;display:grid;place-items:center;border:2px solid var(--ice);background:radial-gradient(circle,#0f3f55 0,#061a27 70%);box-shadow:0 0 28px #8fe9ff44,inset 0 0 22px #8fe9ff33;transition:box-shadow .2s,border-color .2s}
+#orb::before,#orb::after{content:"";position:absolute;border-radius:50%;border:1px solid #8fe9ff66}
+#orb::before{inset:12px}#orb::after{inset:28px;border-style:dashed}
+#orb span{position:relative;font-size:14px;color:var(--ice)}
+#orb.listen{border-color:var(--gold);box-shadow:0 0 38px #f2b84b88,inset 0 0 26px #f2b84b44;animation:p 1.1s ease-in-out infinite}
+#orb.listen span{color:var(--gold)}
+#orb.think::after{animation:sp 1.2s linear infinite}
+#orb.talk{animation:p .7s ease-in-out infinite}
+@keyframes p{50%{transform:scale(1.07)}}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#orb,#orb::after{animation:none!important}}
+.row{display:flex;gap:10px;align-items:center;color:var(--dim);font-size:14px}
+.sw{border:1px solid var(--line);border-radius:999px;padding:7px 14px}
+.sw.on{border-color:var(--gold);color:var(--gold)}
+#set{position:fixed;inset:0;background:var(--bg);padding:20px 18px;overflow:auto;display:none;z-index:5}
+#set.show{display:block}
+label{display:block;margin:16px 0 6px;color:var(--dim);font-size:14px}
+input,textarea,select{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:12px;font:inherit;font-size:16px}
+textarea{min-height:110px}
+.btn{margin-top:20px;width:100%;background:var(--ice);color:#04202c;font-weight:600;border-radius:12px;padding:14px}
+small{display:block;color:var(--dim);margin-top:6px;line-height:1.4}
+a{color:var(--ice)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+</style>
+</head>
+<body>
+<header><h1>JARVIS</h1><button class="gear" id="gear">Settings</button></header>
+<div id="log"></div>
+<div class="dock">
+  <button id="orb" aria-label="Tap and speak"><span>Tap</span></button>
+  <div class="row"><button class="sw" id="always">Hey Jarvis mode: off</button></div>
+</div>
+
+<div id="set">
+  <h1>Setup</h1>
+  <label for="key">Gemini API key (free)</label>
+  <input id="key" type="password" autocomplete="off" placeholder="AIza...">
+  <small>Get it free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. The key stays only on this phone.</small>
+  <label for="lang">Voice language</label>
+  <select id="lang"><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English (India)</option><option value="en-US">English (US)</option></select>
+  <label for="name">Your name</label>
+  <input id="name" placeholder="e.g. Rahul">
+  <label for="contacts">Contacts (one per line, name=number)</label>
+  <textarea id="contacts" placeholder="Mummy=9876543210&#10;Rahul=9123456780"></textarea>
+  <small>"Mummy ko call karo" works from this list.</small>
+  <button class="btn" id="save">Save and start</button>
+</div>
+
+<script>
+var $=function(i){return document.getElementById(i)};
+var S={};try{S=JSON.parse(localStorage.getItem("jv")||"{}")}catch(e){}
+var hist=[],busy=false,awake=false,always=false,rec=null;
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+var timers=[];
+
+function save(){try{localStorage.setItem("jv",JSON.stringify(S))}catch(e){}}
+function add(cls,t){var d=document.createElement("div");d.className="m "+cls;d.textContent=t;$("log").appendChild(d);$("log").scrollTop=1e9}
+function state(c){$("orb").className=c||"";$("orb").firstChild.textContent={listen:"Sun raha",think:"Soch raha",talk:"Bol raha"}[c]||"Tap"}
+
+function contactsMap(){var m={};(S.contacts||"").split("\n").forEach(function(l){var p=l.split("=");if(p.length==2)m[p[0].trim().toLowerCase()]=p[1].replace(/[^\d+]/g,"")});return m}
+
+function sysPrompt(){
+  var c=S.contacts||"(none)";
+  return "You are JARVIS, a smart, witty, loyal voice assistant on "+(S.name||"the user")+"'s phone, like Tony Stark's Jarvis. "+
+  "Reply in the SAME language and script style the user speaks (Hinglish in Roman script if they speak Hinglish). "+
+  "Replies are spoken aloud: keep them short (1-3 sentences), no markdown, no emojis. Answer any question helpfully and accurately. "+
+  "Now: "+new Date().toString()+". Contacts: "+c+". "+
+  "Output ONLY JSON: {\"reply\":\"spoken text\",\"action\":null or {\"type\":\"call|sms|whatsapp|email|open|search|youtube|maps|timer\",\"value\":\"...\",\"text\":\"...\"}}. "+
+  "Action rules: call -> value is phone number from contacts or spoken digits. sms/whatsapp -> value is number (digits with country code for whatsapp, default 91), text is the message. "+
+  "email -> value is address, text is body. open -> value is full https URL. search -> value is query. youtube -> value is query. maps -> value is place. timer -> value is seconds as number, text is label. "+
+  "Use action null when no phone action is needed. If a contact is unknown, ask for the number and use null.";
+}
+
+async function ask(text){
+  hist.push({role:"user",parts:[{text:text}]});
+  if(hist.length>16)hist=hist.slice(-16);
+  var url="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+encodeURIComponent(S.key);
+  var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+    system_instruction:{parts:[{text:sysPrompt()}]},contents:hist,
+    generationConfig:{responseMimeType:"application/json",temperature:0.7}})});
+  var j=await r.json();
+  if(!r.ok)throw new Error((j.error&&j.error.message)||"API error "+r.status);
+  var raw=j.candidates[0].content.parts.map(function(p){return p.text||""}).join("");
+  hist.push({role:"model",parts:[{text:raw}]});
+  try{return JSON.parse(raw.replace(/```json|```/g,"").trim())}catch(e){return {reply:raw,action:null}}
+}
+
+function speak(t,cb){
+  if(!window.speechSynthesis){cb&&cb();return}
+  speechSynthesis.cancel();
+  var u=new SpeechSynthesisUtterance(t);u.lang=S.lang||"hi-IN";u.rate=1.02;
+  var v=speechSynthesis.getVoices().filter(function(x){return x.lang.replace("_","-")==u.lang})[0]||
+        speechSynthesis.getVoices().filter(function(x){return x.lang.slice(0,2)==u.lang.slice(0,2)})[0];
+  if(v)u.voice=v;
+  state("talk");
+  u.onend=u.onerror=function(){state("");cb&&cb()};
+  speechSynthesis.speak(u);
+}
+
+function run(a){
+  if(!a||!a.type)return;
+  var v=String(a.value||""),t=encodeURIComponent(a.text||""),m=contactsMap(),go=function(u){setTimeout(function(){location.href=u},900)};
+  var num=m[v.toLowerCase()]||v.replace(/[^\d+]/g,"");
+  switch(a.type){
+    case "call":go("tel:"+num);break;
+    case "sms":go("sms:"+num+"?body="+t);break;
+    case "whatsapp":var n=num.replace(/\D/g,"");if(n.length==10)n="91"+n;go("https://wa.me/"+n+"?text="+t);break;
+    case "email":go("mailto:"+v+"?body="+t);break;
+    case "open":if(/^https?:\/\//.test(v))go(v);break;
+    case "search":go("https://www.google.com/search?q="+encodeURIComponent(v));break;
+    case "youtube":go("https://www.youtube.com/results?search_query="+encodeURIComponent(v));break;
+    case "maps":go("https://www.google.com/maps/search/"+encodeURIComponent(v));break;
+    case "timer":var s=parseInt(v,10)||60;timers.push(setTimeout(function(){speak((a.text||"Timer")+" khatam ho gaya.");add("sys","Timer khatam")},s*1000));break;
+  }
+}
+
+async function handle(text){
+  if(!S.key){add("sys","Pehle Settings mein API key daalo.");return}
+  busy=true;add("u",text);state("think");
+  try{
+    var res=await ask(text);
+    add("j",res.reply);
+    speak(res.reply,function(){busy=false;if(always)listen()});
+    run(res.action);
+  }catch(e){add("sys","Error: "+e.message);busy=false;state("")}
+}
+
+function listen(){
+  if(!SR){add("sys","Is browser mein voice support nahi hai. Chrome use karo.");return}
+  if(busy||rec)return;
+  try{speechSynthesis.cancel()}catch(e){}
+  rec=new SR();rec.lang=S.lang||"hi-IN";rec.interimResults=false;rec.maxAlternatives=1;
+  var got=false;
+  rec.onstart=function(){state("listen")};
+  rec.onresult=function(e){
+    got=true;var t=e.results[0][0].transcript.trim();
+    if(always&&!awake){
+      var low=t.toLowerCase();
+      if(/jarvis|jarwis|जार्विस|जारविस/.test(low)){
+        var rest=t.replace(/hey|hi|ok|okay|हे/ig,"").replace(/jarvis|jarwis|जार्विस|जारविस/ig,"").replace(/^[\s,.]+/,"");
+        if(rest.length>2){handle(rest)}else{awake=true;busy=true;speak("Ji boliye",function(){busy=false;listen()})}
+      }
+    }else{awake=false;handle(t)}
+  };
+  rec.onerror=function(e){if(e.error=="not-allowed"||e.error=="service-not-allowed"){always=false;sync();add("sys","Mic ki permission do.")}};
+  rec.onend=function(){rec=null;if(!busy){state("");if(always&&!got||always&&awake&&!got)setTimeout(listen,300)}};
+  try{rec.start()}catch(e){rec=null}
+}
+
+function sync(){$("always").textContent="Hey Jarvis mode: "+(always?"on":"off");$("always").classList.toggle("on",always)}
+
+$("orb").onclick=function(){if(rec){rec.stop();return}awake=true;listen()};
+$("always").onclick=function(){always=!always;awake=false;sync();if(always)listen();else if(rec)rec.stop()};
+$("gear").onclick=function(){$("key").value=S.key||"";$("lang").value=S.lang||"hi-IN";$("name").value=S.name||"";$("contacts").value=S.contacts||"";$("set").classList.add("show")};
+$("save").onclick=function(){S.key=$("key").value.trim();S.lang=$("lang").value;S.name=$("name").value.trim();S.contacts=$("contacts").value;save();$("set").classList.remove("show");add("sys","Saved. Orb dabao aur bolo.")};
+
+if(window.speechSynthesis)speechSynthesis.onvoiceschanged=function(){};
+add("sys",S.key?"Jarvis ready. Orb dabao aur bolo.":"Pehle Settings kholo aur free API key daalo.");
+if(!S.key)$("gear").click();
+</script>
+</body>
+</html>
